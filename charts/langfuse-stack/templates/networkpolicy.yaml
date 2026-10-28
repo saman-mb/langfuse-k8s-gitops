@@ -1,0 +1,37 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "langfuse-stack.fullname" . }}-datastores
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "langfuse-stack.labels" . | nindent 4 }}
+spec:
+  # Restricts ingress to in-namespace datastores so only pods inside this
+  # namespace (such as langfuse-web and langfuse-worker) can connect.
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - clickhouse
+          - postgresql
+          - redis
+          - s3
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 8123
+        - protocol: TCP
+          port: 9000
+        - protocol: TCP
+          port: 8333
+{{- end }}

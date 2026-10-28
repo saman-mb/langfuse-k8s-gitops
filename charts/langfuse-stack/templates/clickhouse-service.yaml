@@ -1,0 +1,24 @@
+{{- if .Values.standaloneClickhouse.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.standaloneClickhouse.serviceName | default "langfuse-clickhouse" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "langfuse-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.standaloneClickhouse.httpPort | default 8123 }}
+      targetPort: http
+      protocol: TCP
+    - name: native
+      port: {{ .Values.standaloneClickhouse.nativePort | default 9000 }}
+      targetPort: native
+      protocol: TCP
+  selector:
+    {{- include "langfuse-stack.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+{{- end }}

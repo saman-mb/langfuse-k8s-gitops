@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: langfuse-local
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: langfuse
+  source:
+    repoURL: https://github.com/saman-mb/langfuse-k8s-gitops.git
+    targetRevision: HEAD
+    path: charts/langfuse-stack
+    helm:
+      releaseName: langfuse
+      valueFiles:
+        - values.yaml
+        - ../../environments/local/values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: langfuse
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: langfuse-s3-sftp-secret
+      jsonPointers:
+        - /data
+        - /stringData
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true

@@ -1,0 +1,16 @@
+{{- if .Values.bootstrap.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: langfuse-bootstrap-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "langfuse-stack.labels" . | nindent 4 }}
+data:
+  LANGFUSE_INIT_ORG_ID: {{ .Values.bootstrap.orgId | quote }}
+  LANGFUSE_INIT_ORG_NAME: {{ .Values.bootstrap.orgName | quote }}
+  LANGFUSE_INIT_PROJECT_ID: {{ .Values.bootstrap.projectId | quote }}
+  LANGFUSE_INIT_PROJECT_NAME: {{ .Values.bootstrap.projectName | quote }}
+  LANGFUSE_INIT_USER_EMAIL: {{ .Values.bootstrap.userEmail | quote }}
+  LANGFUSE_INIT_USER_NAME: {{ .Values.bootstrap.userName | quote }}
+{{- end }}

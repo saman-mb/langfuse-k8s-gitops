@@ -1,0 +1,108 @@
+{{- if .Values.standaloneClickhouse.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.standaloneClickhouse.serviceName | default "langfuse-clickhouse" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "langfuse-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+spec:
+  serviceName: {{ .Values.standaloneClickhouse.serviceName | default "langfuse-clickhouse" }}
+  replicas: {{ .Values.standaloneClickhouse.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "langfuse-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clickhouse
+  template:
+    metadata:
+      labels:
+        {{- include "langfuse-stack.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: clickhouse
+    spec:
+      {{- with .Values.standaloneClickhouse.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.standaloneClickhouse.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.standaloneClickhouse.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.standaloneClickhouse.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: clickhouse
+          image: "{{ .Values.standaloneClickhouse.image.repository }}:{{ .Values.standaloneClickhouse.image.tag }}"
+          imagePullPolicy: {{ .Values.standaloneClickhouse.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: CLICKHOUSE_DB
+              value: {{ .Values.standaloneClickhouse.database | default "default" | quote }}
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.standaloneClickhouse.username | default "clickhouse" | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "langfuse-stack.secretName" . }}
+                  key: clickhouse-password
+          ports:
+            - name: http
+              containerPort: {{ .Values.standaloneClickhouse.httpPort | default 8123 }}
+              protocol: TCP
+            - name: native
+              containerPort: {{ .Values.standaloneClickhouse.nativePort | default 9000 }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- with .Values.standaloneClickhouse.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: clickhouse-data
+              mountPath: /var/lib/clickhouse
+            - name: clickhouse-logs
+              mountPath: /var/log/clickhouse-server
+  volumeClaimTemplates:
+    - metadata:
+        name: clickhouse-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if .Values.standaloneClickhouse.storage.storageClassName }}
+        storageClassName: {{ .Values.standaloneClickhouse.storage.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.standaloneClickhouse.storage.dataSize | default "50Gi" }}
+    - metadata:
+        name: clickhouse-logs
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if .Values.standaloneClickhouse.storage.storageClassName }}
+        storageClassName: {{ .Values.standaloneClickhouse.storage.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.standaloneClickhouse.storage.logsSize | default "10Gi" }}
+{{- end }}

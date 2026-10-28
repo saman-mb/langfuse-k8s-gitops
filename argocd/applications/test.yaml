@@ -1,0 +1,44 @@
+# =============================================================================
+# ArgoCD Application: TEST AWS Account Cluster (Single Namespace: `langfuse`)
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: langfuse-test
+  namespace: argocd
+  labels:
+    environment: test
+    app.kubernetes.io/part-of: langfuse
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: langfuse
+  source:
+    repoURL: https://github.com/saman-mb/langfuse-k8s-gitops.git
+    targetRevision: main
+    path: charts/langfuse-stack
+    helm:
+      releaseName: langfuse
+      valueFiles:
+        - values.yaml
+        - ../../environments/test/values.yaml
+  destination:
+    # When ArgoCD runs inside the Test AWS Account cluster, use in-cluster URL.
+    # If deploying from a central hub ArgoCD, replace with the Test EKS cluster URL/name.
+    server: https://kubernetes.default.svc
+    namespace: langfuse
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: langfuse-s3-sftp-secret
+      jsonPointers:
+        - /data
+        - /stringData
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true

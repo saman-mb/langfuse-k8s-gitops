@@ -1,0 +1,342 @@
+# =============================================================================
+# Langfuse Umbrella Chart Default Values (langfuse-stack)
+# =============================================================================
+# This umbrella chart wraps the upstream `langfuse/langfuse` Helm chart (v2.1.7)
+# and adds GitOps-ready primitives for single-namespace deployments across any
+# Kubernetes cluster (local, test, pre-prod, prod AWS accounts):
+#
+#   1. Unified Secret & AWS ExternalSecret (ESO) integration (prevents ArgoCD
+#      `helm template` from regenerating unpinned `lookup` secrets on sync)
+#   2. First-boot Headless Bootstrap (auto-provisioning org, project, user, and
+#      API keys on first boot, matching docker-compose.langfuse.yml)
+#   3. Single-namespace Standalone ClickHouse StatefulSet (avoids requiring
+#      cluster-wide `clickhouse-operator` & `cert-manager` CRDs when running in
+#      a single namespace)
+#   4. Kubernetes Gateway API `HTTPRoute` + Namespace `NetworkPolicy`
+# =============================================================================
+
+nameOverride: ""
+fullnameOverride: "langfuse"
+
+# -----------------------------------------------------------------------------
+# 1. Unified Secrets Management (GitOps / ArgoCD Safe)
+# -----------------------------------------------------------------------------
+secrets:
+  # Name of the unified Kubernetes Secret referenced by Langfuse and all stores.
+  name: "langfuse-secrets"
+  # Set `create: true` ONLY for local/quickstart clusters where External Secrets
+  # Operator is not used. Keep `false` in GitOps environments (test/pre-prod/prod).
+  create: false
+  annotations:
+    helm.sh/resource-policy: keep
+  # Default bootstrap values used ONLY when `secrets.create: true` (local dev).
+  data:
+    salt: "local-dev-salt-change-me-in-production-32b"
+    encryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    nextauthSecret: "local-dev-nextauth-secret-change-me-in-prod"
+    postgresqlPassword: "postgrespassword"
+    clickhousePassword: "clickhousepassword"
+    redisPassword: "redispassword"
+    s3User: "langfuse"
+    s3Password: "miniosecretpassword"
+    initProjectPublicKey: "pk-lf-local-telemetry"
+    initProjectSecretKey: "sk-lf-local-telemetry"
+    initUserPassword: "password"
+    adminApiKey: ""
+
+# -----------------------------------------------------------------------------
+# 2. External Secrets Operator (AWS Secrets Manager -> Kubernetes Secret)
+# -----------------------------------------------------------------------------
+externalSecret:
+  # Enable in AWS account environments (test, pre-prod, prod)
+  enabled: false
+  # ArgoCD sync wave ensures the Secret is reconciled before Deployments/StatefulSets
+  syncWave: "-1"
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: "aws-secrets-manager"
+    kind: "ClusterSecretStore" # or "SecretStore" for namespace-scoped IRSA store
+  # AWS Secrets Manager secret name containing the JSON key-value pairs
+  remoteSecretKey: "langfuse/test/secrets"
+
+# -----------------------------------------------------------------------------
+# 3. Headless First-Boot Auto-Provisioning (Ported from docker-compose.langfuse.yml)
+# -----------------------------------------------------------------------------
+bootstrap:
+  # When enabled, creates `langfuse-bootstrap-config` ConfigMap and injects
+  # LANGFUSE_INIT_* and ADMIN_API_KEY into langfuse-web / langfuse-worker.
+  enabled: true
+  orgId: "pi-telemetry"
+  orgName: "pi-telemetry"
+  projectId: "pi-telemetry"
+  projectName: "pi-telemetry"
+  userEmail: "admin@example.com"
+  userName: "admin"
+  enableAdminApiKey: true
+
+# -----------------------------------------------------------------------------
+# 4. Single-Namespace Standalone ClickHouse (No Cluster-Wide Operator Required)
+# -----------------------------------------------------------------------------
+# Upstream `langfuse.clickhouse.deploy: true` requires cluster-wide CRDs
+# (`clickhouse-operator` + `cert-manager`). Because this deployment runs in a
+# single namespace per cluster, `standaloneClickhouse.enabled: true` deploys a
+# standard `StatefulSet` (`clickhouse/clickhouse-server:25.12`) directly inside
+# the namespace—matching `docker-compose.langfuse.yml`.
+# For external ClickHouse Cloud in prod, set `standaloneClickhouse.enabled: false`
+# and override `langfuse.clickhouse.host`.
+standaloneClickhouse:
+  enabled: true
+  serviceName: "langfuse-clickhouse"
+  image:
+    repository: "clickhouse/clickhouse-server"
+    tag: "25.12"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  database: "default"
+  username: "clickhouse"
+  httpPort: 8123
+  nativePort: 9000
+  podSecurityContext:
+    runAsUser: 101
+    runAsGroup: 101
+    fsGroup: 101
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  storage:
+    dataSize: 50Gi
+    logsSize: 10Gi
+    storageClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -----------------------------------------------------------------------------
+# 5. Kubernetes Gateway API (HTTPRoute)
+# -----------------------------------------------------------------------------
+httpRoute:
+  enabled: false
+  annotations: {}
+  parentRefs: []
+  # Example:
+  # - name: internal-gateway
+  #   namespace: gateway-system
+  #   sectionName: https
+  hostnames: []
+  # - langfuse.test.internal.example.com
+
+# -----------------------------------------------------------------------------
+# 6. Namespace NetworkPolicy
+# -----------------------------------------------------------------------------
+networkPolicy:
+  # Restricts backing datastores (Postgres, ClickHouse, Valkey, SeaweedFS) to
+  # accept connections only from pods within the same namespace.
+  enabled: false
+
+# =============================================================================
+# 7. Upstream `langfuse/langfuse` Subchart Configuration
+# =============================================================================
+langfuse:
+  fullnameOverride: "langfuse"
+
+  langfuse:
+    # Pin Langfuse v3 image line to match docker-compose.langfuse.yml (or set null for chart default v4)
+    image:
+      tag: "3"
+      pullPolicy: IfNotPresent
+
+    logging:
+      level: info
+      format: json
+
+    features:
+      telemetryEnabled: false
+      signUpDisabled: false
+      experimentalFeaturesEnabled: false
+
+    # Pin all application secrets to the unified Kubernetes Secret
+    salt:
+      secretKeyRef:
+        name: "langfuse-secrets"
+        key: "salt"
+
+    encryptionKey:
+      secretKeyRef:
+        name: "langfuse-secrets"
+        key: "encryption-key"
+
+    nextauth:
+      url: "http://localhost:3000"
+      secret:
+        secretKeyRef:
+          name: "langfuse-secrets"
+          key: "nextauth-secret"
+
+    # Inject headless auto-provisioning ConfigMap & Secret variables
+    additionalEnvFrom:
+      - configMapRef:
+          name: "langfuse-bootstrap-config"
+          optional: true
+
+    additionalEnv:
+      - name: ADMIN_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: "langfuse-secrets"
+            key: "admin-api-key"
+            optional: true
+
+    web:
+      replicas: 1
+      pod:
+        additionalEnv:
+          - name: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+            valueFrom:
+              secretKeyRef:
+                name: "langfuse-secrets"
+                key: "langfuse-init-project-public-key"
+                optional: true
+          - name: LANGFUSE_INIT_PROJECT_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: "langfuse-secrets"
+                key: "langfuse-init-project-secret-key"
+                optional: true
+          - name: LANGFUSE_INIT_USER_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: "langfuse-secrets"
+                key: "langfuse-init-user-password"
+                optional: true
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: 1000m
+          memory: 1Gi
+      pdb:
+        create: false
+
+    worker:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: 1000m
+          memory: 1Gi
+      pdb:
+        create: false
+
+    ingress:
+      enabled: false
+      className: ""
+      annotations: {}
+      hosts:
+        - host: langfuse.local
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        enabled: false
+        secretName: ""
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL (Bundled groundhog2k/postgres subchart or external AWS RDS)
+  # ---------------------------------------------------------------------------
+  postgresql:
+    deploy: true
+    image:
+      repository: postgres
+      tag: "17"
+      pullPolicy: IfNotPresent
+    auth:
+      username: langfuse
+      database: langfuse
+      existingSecret: "langfuse-secrets"
+      secretKeys:
+        adminPasswordKey: "postgresql-password"
+        userPasswordKey: "postgresql-password"
+    settings:
+      existingSecret: "langfuse-secrets"
+    userDatabase:
+      existingSecret: "langfuse-secrets"
+    storage:
+      requestedSize: 20Gi
+      className: ""
+
+  # ---------------------------------------------------------------------------
+  # ClickHouse (Wired to Single-Namespace Standalone ClickHouse by default)
+  # ---------------------------------------------------------------------------
+  clickhouse:
+    # Disable cluster-wide ClickHouse Operator CRDs by default so the chart works
+    # in a single namespace with zero cluster-wide CRD dependencies.
+    deploy: false
+    crdCheck: false
+    host: "langfuse-clickhouse"
+    httpPort: 8123
+    nativePort: 9000
+    database: "default"
+    cluster:
+      enabled: false
+    auth:
+      username: "clickhouse"
+      existingSecret: "langfuse-secrets"
+      existingSecretKey: "clickhouse-password"
+    migration:
+      autoMigrate: true
+      ssl: false
+
+  # ---------------------------------------------------------------------------
+  # Redis / Valkey (Bundled valkey-io/valkey subchart or external ElastiCache)
+  # ---------------------------------------------------------------------------
+  redis:
+    deploy: true
+    auth:
+      enabled: true
+      username: "default"
+      existingSecret: "langfuse-secrets"
+      existingSecretPasswordKey: "redis-password"
+      usersExistingSecret: "langfuse-secrets"
+    dataStorage:
+      enabled: true
+      requestedSize: 8Gi
+      className: ""
+
+  # ---------------------------------------------------------------------------
+  # S3 Object Storage (Bundled SeaweedFS subchart or external AWS S3)
+  # ---------------------------------------------------------------------------
+  s3:
+    deploy: true
+    global:
+      seaweedfs:
+        # Disable unnecessary ClusterRole/ClusterRoleBinding so the entire chart
+        # stays 100% scoped to a single namespace.
+        createClusterRole: false
+        serviceAccountName: "langfuse-s3"
+    storageProvider: "s3"
+    bucket: "langfuse"
+    region: "auto"
+    forcePathStyle: true
+    eventUpload:
+      prefix: "events/"
+    mediaUpload:
+      prefix: "media/"
+    auth:
+      existingSecret: "langfuse-secrets"
+      rootUserSecretKey: "s3-user"
+      rootPasswordSecretKey: "s3-password"
+    allInOne:
+      s3:
+        existingConfigSecret: "langfuse-secrets"
+        createBuckets:
+          - name: langfuse
+      data:
+        size: 20Gi
+        storageClass: ""

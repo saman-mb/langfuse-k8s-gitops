@@ -1,0 +1,142 @@
+# =============================================================================
+# Environment Overlay: PRE-PROD (Pre-Prod AWS Account - Single Cluster, Single Namespace)
+# =============================================================================
+# Target:
+#   - AWS Account: Pre-Prod
+#   - Namespace:   langfuse
+#   - Secrets:     Synced from AWS Secrets Manager (`langfuse/pre-prod/secrets`)
+#                  via External Secrets Operator (`ExternalSecret`).
+#   - Topology:    Production-like multi-replica web & worker with HPA and PDB.
+#                  Backing stores default to in-namespace `gp3` StatefulSets for
+#                  turn-key deployment, with commented overrides ready for
+#                  AWS RDS, ElastiCache, and S3 (IRSA).
+# =============================================================================
+
+secrets:
+  name: "langfuse-secrets"
+  create: false
+
+externalSecret:
+  enabled: true
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: "aws-secrets-manager"
+    kind: "ClusterSecretStore"
+  remoteSecretKey: "langfuse/pre-prod/secrets"
+
+bootstrap:
+  enabled: true
+  orgId: "pi-telemetry"
+  orgName: "pi-telemetry-pre-prod"
+  projectId: "pi-telemetry"
+  projectName: "pi-telemetry-pre-prod"
+  userEmail: "admin@pre-prod.example.com"
+  userName: "admin"
+
+standaloneClickhouse:
+  enabled: true
+  replicas: 1
+  storage:
+    dataSize: 100Gi
+    logsSize: 20Gi
+    storageClassName: "gp3"
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 4Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+
+httpRoute:
+  enabled: false
+  parentRefs:
+    - name: internal-gateway
+      namespace: gateway-system
+  hostnames:
+    - langfuse.pre-prod.example.com
+
+networkPolicy:
+  enabled: true
+
+langfuse:
+  langfuse:
+    nextauth:
+      url: "https://langfuse.pre-prod.example.com"
+    serviceAccount:
+      create: true
+      annotations: {}
+        # Uncomment when using AWS S3 with IRSA in the pre-prod AWS account:
+        # eks.amazonaws.com/role-arn: arn:aws:iam::<PRE_PROD_AWS_ACCOUNT_ID>:role/langfuse-pre-prod-role
+
+    web:
+      replicas: 2
+      hpa:
+        enabled: true
+        minReplicas: 2
+        maxReplicas: 4
+        targetCPUUtilizationPercentage: 70
+      pdb:
+        create: true
+        minAvailable: 1
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+
+    worker:
+      replicas: 2
+      hpa:
+        enabled: true
+        minReplicas: 2
+        maxReplicas: 4
+        targetCPUUtilizationPercentage: 70
+      pdb:
+        create: true
+        minAvailable: 1
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+
+    ingress:
+      enabled: true
+      className: "alb"
+      annotations:
+        alb.ingress.kubernetes.io/scheme: internal
+        alb.ingress.kubernetes.io/target-type: ip
+        alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+        alb.ingress.kubernetes.io/healthcheck-path: /api/public/health
+      hosts:
+        - host: langfuse.pre-prod.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+
+  postgresql:
+    # Set `deploy: false` and `host: "<rds-endpoint>"` to use AWS RDS PostgreSQL
+    deploy: true
+    storage:
+      requestedSize: 50Gi
+      className: "gp3"
+
+  redis:
+    # Set `deploy: false` and `host: "<elasticache-endpoint>"` to use AWS ElastiCache
+    deploy: true
+    dataStorage:
+      requestedSize: 16Gi
+      className: "gp3"
+
+  s3:
+    # Set `deploy: false`, `region: "us-east-1"`, `forcePathStyle: false` to use AWS S3
+    deploy: true
+    allInOne:
+      data:
+        size: 100Gi
+        storageClass: "gp3"

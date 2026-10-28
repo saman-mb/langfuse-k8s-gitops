@@ -1,0 +1,15 @@
+# Local secret overrides (never commit real secrets)
+.env
+*.secret.yaml
+*-secrets-local.yaml
+
+# Rendered output & scratch artifacts
+/dist/
+/rendered/
+*.tgz.tmp
+
+# OS / Editor files
+.DS_Store
+*.swp
+.idea/
+.vscode/

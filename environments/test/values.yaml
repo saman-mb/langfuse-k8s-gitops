@@ -1,0 +1,103 @@
+# =============================================================================
+# Environment Overlay: TEST (Test AWS Account - Single Cluster, Single Namespace)
+# =============================================================================
+# Target:
+#   - AWS Account: Test
+#   - Namespace:   langfuse
+#   - Secrets:     Synced from AWS Secrets Manager (`langfuse/test/secrets`)
+#                  via External Secrets Operator (`ExternalSecret`).
+#   - Datastores:  Self-contained in-namespace StatefulSets on AWS EBS (`gp3`),
+#                  keeping Test cost-effective and completely self-contained.
+# =============================================================================
+
+secrets:
+  name: "langfuse-secrets"
+  create: false
+
+externalSecret:
+  enabled: true
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: "aws-secrets-manager"
+    kind: "ClusterSecretStore"
+  remoteSecretKey: "langfuse/test/secrets"
+
+bootstrap:
+  enabled: true
+  orgId: "pi-telemetry"
+  orgName: "pi-telemetry-test"
+  projectId: "pi-telemetry"
+  projectName: "pi-telemetry-test"
+  userEmail: "admin@test.example.com"
+  userName: "admin"
+
+standaloneClickhouse:
+  enabled: true
+  replicas: 1
+  storage:
+    dataSize: 50Gi
+    logsSize: 10Gi
+    storageClassName: "gp3"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+httpRoute:
+  enabled: false
+  parentRefs:
+    - name: internal-gateway
+      namespace: gateway-system
+  hostnames:
+    - langfuse.test.example.com
+
+networkPolicy:
+  enabled: true
+
+langfuse:
+  langfuse:
+    nextauth:
+      url: "https://langfuse.test.example.com"
+    web:
+      replicas: 1
+      pdb:
+        create: false
+    worker:
+      replicas: 1
+      pdb:
+        create: false
+    ingress:
+      enabled: true
+      className: "alb"
+      annotations:
+        alb.ingress.kubernetes.io/scheme: internal
+        alb.ingress.kubernetes.io/target-type: ip
+        alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+        alb.ingress.kubernetes.io/healthcheck-path: /api/public/health
+      hosts:
+        - host: langfuse.test.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+
+  postgresql:
+    deploy: true
+    storage:
+      requestedSize: 20Gi
+      className: "gp3"
+
+  redis:
+    deploy: true
+    dataStorage:
+      requestedSize: 8Gi
+      className: "gp3"
+
+  s3:
+    deploy: true
+    allInOne:
+      data:
+        size: 30Gi
+        storageClass: "gp3"

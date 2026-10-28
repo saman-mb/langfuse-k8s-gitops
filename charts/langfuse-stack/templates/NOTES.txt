@@ -1,0 +1,14 @@
+Thank you for deploying {{ .Chart.Name }} (release: {{ .Release.Name }}) in namespace `{{ .Release.Namespace }}`!
+
+1. Check the rollout status of Langfuse and its backing services:
+   kubectl get pods -n {{ .Release.Namespace }}
+
+2. Verify the Langfuse health endpoint via port-forwarding:
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ .Values.langfuse.fullnameOverride | default "langfuse" }}-web 3000:3000
+   curl http://localhost:3000/api/public/health
+
+{{- if .Values.bootstrap.enabled }}
+3. First-Boot Headless Provisioning:
+   Organization `{{ .Values.bootstrap.orgName }}` and Project `{{ .Values.bootstrap.projectName }}`
+   are auto-provisioned on first boot using the keys in Secret `{{ include "langfuse-stack.secretName" . }}`.
+{{- end }}

@@ -1,0 +1,68 @@
+# =============================================================================
+# Multi-Account ArgoCD ApplicationSet (Central Hub Topology)
+# =============================================================================
+# Use this ApplicationSet if you operate a central ArgoCD control plane that
+# deploys across your Test, Pre-Prod, and Prod AWS Account EKS clusters.
+# If each AWS account runs its own standalone ArgoCD instance, apply the
+# corresponding manifest in `argocd/applications/<env>.yaml` instead.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: langfuse-environments
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - env: test
+            clusterName: in-cluster # or your registered Test AWS EKS cluster name
+            targetRevision: main
+          - env: pre-prod
+            clusterName: in-cluster # or your registered Pre-Prod AWS EKS cluster name
+            targetRevision: main
+          - env: prod
+            clusterName: in-cluster # or your registered Prod AWS EKS cluster name
+            targetRevision: main
+  template:
+    metadata:
+      name: "langfuse-{{ .env }}"
+      namespace: argocd
+      labels:
+        environment: "{{ .env }}"
+        app.kubernetes.io/part-of: langfuse
+    spec:
+      project: langfuse
+      source:
+        repoURL: https://github.com/saman-mb/langfuse-k8s-gitops.git
+        targetRevision: "{{ .targetRevision }}"
+        path: charts/langfuse-stack
+        helm:
+          releaseName: langfuse
+          valueFiles:
+            - values.yaml
+            - "../../environments/{{ .env }}/values.yaml"
+      destination:
+        name: "{{ .clusterName }}"
+        namespace: langfuse
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas
+        - group: ""
+          kind: Secret
+          name: langfuse-s3-sftp-secret
+          jsonPointers:
+            - /data
+            - /stringData
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true

@@ -1,0 +1,164 @@
+# =============================================================================
+# Environment Overlay: PROD (Prod AWS Account - Single Cluster, Single Namespace)
+# =============================================================================
+# Target:
+#   - AWS Account: Prod
+#   - Namespace:   langfuse
+#   - Secrets:     Synced from AWS Secrets Manager (`langfuse/prod/secrets`)
+#                  via External Secrets Operator (`ExternalSecret`).
+#   - High Availability:
+#       * 3+ replicas for `langfuse-web` and `langfuse-worker`
+#       * HPA autoscaling (3 -> 10 pods) & PodDisruptionBudgets (`minAvailable: 2`)
+#       * Multi-AZ topologySpreadConstraints
+#       * Public sign-up disabled (`signUpDisabled: true`)
+# =============================================================================
+
+secrets:
+  name: "langfuse-secrets"
+  create: false
+
+externalSecret:
+  enabled: true
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: "aws-secrets-manager"
+    kind: "ClusterSecretStore"
+  remoteSecretKey: "langfuse/prod/secrets"
+
+bootstrap:
+  enabled: true
+  orgId: "pi-telemetry"
+  orgName: "pi-telemetry"
+  projectId: "pi-telemetry"
+  projectName: "pi-telemetry"
+  userEmail: "admin@example.com"
+  userName: "admin"
+
+standaloneClickhouse:
+  # Set to `false` if using ClickHouse Cloud or external ClickHouse cluster in Prod
+  enabled: true
+  replicas: 1
+  storage:
+    dataSize: 250Gi
+    logsSize: 25Gi
+    storageClassName: "gp3"
+  resources:
+    requests:
+      cpu: 2000m
+      memory: 8Gi
+    limits:
+      cpu: 4000m
+      memory: 16Gi
+
+httpRoute:
+  enabled: false
+  parentRefs:
+    - name: internal-gateway
+      namespace: gateway-system
+  hostnames:
+    - langfuse.example.com
+
+networkPolicy:
+  enabled: true
+
+langfuse:
+  langfuse:
+    features:
+      telemetryEnabled: false
+      signUpDisabled: true
+      experimentalFeaturesEnabled: false
+
+    nextauth:
+      url: "https://langfuse.example.com"
+
+    serviceAccount:
+      create: true
+      annotations: {}
+        # Uncomment when using AWS S3 with IRSA in the prod AWS account:
+        # eks.amazonaws.com/role-arn: arn:aws:iam::<PROD_AWS_ACCOUNT_ID>:role/langfuse-prod-role
+
+    pod:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: langfuse
+
+    web:
+      replicas: 3
+      hpa:
+        enabled: true
+        minReplicas: 3
+        maxReplicas: 10
+        targetCPUUtilizationPercentage: 65
+      pdb:
+        create: true
+        minAvailable: 2
+      resources:
+        requests:
+          cpu: 1000m
+          memory: 2Gi
+        limits:
+          cpu: 2000m
+          memory: 4Gi
+
+    worker:
+      replicas: 3
+      hpa:
+        enabled: true
+        minReplicas: 3
+        maxReplicas: 10
+        targetCPUUtilizationPercentage: 65
+      pdb:
+        create: true
+        minAvailable: 2
+      resources:
+        requests:
+          cpu: 1000m
+          memory: 2Gi
+        limits:
+          cpu: 2000m
+          memory: 4Gi
+
+    ingress:
+      enabled: true
+      className: "alb"
+      annotations:
+        alb.ingress.kubernetes.io/scheme: internal
+        alb.ingress.kubernetes.io/target-type: ip
+        alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+        alb.ingress.kubernetes.io/healthcheck-path: /api/public/health
+      hosts:
+        - host: langfuse.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+
+  postgresql:
+    # For AWS RDS PostgreSQL in Prod, set `deploy: false` and `host: "<rds-endpoint>"`
+    deploy: true
+    storage:
+      requestedSize: 100Gi
+      className: "gp3"
+      persistentVolumeClaimRetentionPolicy:
+        whenDeleted: Retain
+        whenScaled: Retain
+
+  redis:
+    # For AWS ElastiCache in Prod, set `deploy: false`, `tls.enabled: true`, and `host: "<elasticache-endpoint>"`
+    deploy: true
+    dataStorage:
+      requestedSize: 32Gi
+      className: "gp3"
+      keepPvc: true
+
+  s3:
+    # For AWS S3 in Prod, set `deploy: false`, `bucket: "langfuse-prod-<account-id>"`,
+    # `region: "us-east-1"`, `forcePathStyle: false`, and configure IRSA on `serviceAccount`.
+    deploy: true
+    allInOne:
+      data:
+        size: 250Gi
+        storageClass: "gp3"

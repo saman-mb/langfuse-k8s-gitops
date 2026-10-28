@@ -1,0 +1,65 @@
+# =============================================================================
+# Environment Overlay: LOCAL (Docker Desktop K8s / Kind / Minikube / OrbStack)
+# =============================================================================
+# Deploys a 100% self-contained Langfuse stack in the `langfuse` namespace with
+# all backing services running in-namespace and bootstrap secrets created
+# automatically. Direct Kubernetes equivalent of `docker-compose.langfuse.yml`.
+# =============================================================================
+
+secrets:
+  create: true
+
+externalSecret:
+  enabled: false
+
+bootstrap:
+  enabled: true
+  orgId: "pi-telemetry"
+  orgName: "pi-telemetry"
+  projectId: "pi-telemetry"
+  projectName: "pi-telemetry"
+  userEmail: "admin@localhost"
+  userName: "admin"
+
+standaloneClickhouse:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  storage:
+    dataSize: 10Gi
+    logsSize: 2Gi
+
+networkPolicy:
+  enabled: false
+
+langfuse:
+  langfuse:
+    nextauth:
+      url: "http://localhost:3000"
+    web:
+      replicas: 1
+      pdb:
+        create: false
+    worker:
+      replicas: 1
+      pdb:
+        create: false
+  postgresql:
+    deploy: true
+    storage:
+      requestedSize: 5Gi
+  redis:
+    deploy: true
+    dataStorage:
+      requestedSize: 2Gi
+  s3:
+    deploy: true
+    allInOne:
+      data:
+        size: 5Gi
