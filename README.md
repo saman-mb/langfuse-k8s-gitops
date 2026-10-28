@@ -1,5 +1,7 @@
 # langfuse-k8s-gitops
 
+![Langfuse Dashboard](docs/assets/langfuse-dashboard.png)
+
 General-purpose **ArgoCD + Helm** deployment repository for self-hosting **Langfuse** (v3/v4 architecture) inside a single Kubernetes namespace across any cluster (`local`, `test`, `pre-prod`, and `prod` AWS accounts).
 
 ---
